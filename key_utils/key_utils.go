@@ -1,4 +1,5 @@
-package bitpay
+//Package key_utils provides methods to generate keys and retrieve bitpay specific ids (the SIN) and correctly formatted signatures.
+package key_utils
 
 import (
 	"crypto/elliptic"
@@ -6,12 +7,14 @@ import (
 	"encoding/asn1"
 	"encoding/hex"
 	"encoding/pem"
-	"fmt"
+
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcutil/base58"
+
 	"golang.org/x/crypto/ripemd160"
 )
 
+//This type provides compatibility with the btcec package
 type ecPrivateKey struct {
 	Version       int
 	PrivateKey    []byte
@@ -19,6 +22,7 @@ type ecPrivateKey struct {
 	PublicKey     asn1.BitString        `asn1:"optional,explicit,tag:1"`
 }
 
+//All BitPay clients use a PEM file to store the private and public keys.
 func GeneratePem() string {
 	priv, _ := btcec.NewPrivateKey(btcec.S256())
 	pub := priv.PubKey()
@@ -36,6 +40,36 @@ func GeneratePem() string {
 	return string(pm)
 }
 
+//GenerateSinFromPem returns a base58 encoding of a public key. It expects a pem string as the argument.
+func GenerateSinFromPem(pm string) string {
+	key := ExtractKeyFromPem(pm)
+	sin := generateSinFromKey(key)
+	return sin
+}
+
+//ExtractCompressedPublicKey returns a hexadecimal encoding of the compressed public key. It expects a pem string as the argument.
+func ExtractCompressedPublicKey(pm string) string {
+	key := ExtractKeyFromPem(pm)
+	pub := key.PubKey()
+	comp := pub.SerializeCompressed()
+	hexb := hex.EncodeToString(comp)
+	return hexb
+}
+
+//Returns a hexadecimal encoding of the signed sha256 hash of message, using the key provide in the pem string pm.
+func Sign(message string, pm string) string {
+	key := ExtractKeyFromPem(pm)
+	byta := []byte(message)
+	hash := sha256.New()
+	hash.Write(byta)
+	bytb := hash.Sum(nil)
+	sig, _ := key.Sign(bytb)
+	ser := sig.Serialize()
+	hexa := hex.EncodeToString(ser)
+	return hexa
+}
+
+//Returns a btec.Private key object if provided a correct secp256k1 encoded pem.
 func ExtractKeyFromPem(pm string) *btcec.PrivateKey {
 	byta := []byte(pm)
 	blck, _ := pem.Decode(byta)
@@ -45,19 +79,15 @@ func ExtractKeyFromPem(pm string) *btcec.PrivateKey {
 	return priv
 }
 
-func GeneratePrivateKey() *btcec.PrivateKey {
-	priv, _ := btcec.NewPrivateKey(btcec.S256())
-	return priv
-}
-
-func GenerateSinFromKey(key *btcec.PrivateKey) string {
+func generateSinFromKey(key *btcec.PrivateKey) string {
 	pub := key.PubKey()
 	comp := pub.SerializeCompressed()
-	stx := fmt.Sprintf("%X", comp)
+	hexb := hex.EncodeToString(comp)
+	stx := generateSinFromPublicKey(hexb)
 	return stx
 }
 
-func GenerateSinFromPublicKey(key string) string {
+func generateSinFromPublicKey(key string) string {
 	hexa := sha256ofHexString(key)
 	hexa = ripemd160ofHexString(hexa)
 	versionSinTypeEtc := "0F02" + hexa
